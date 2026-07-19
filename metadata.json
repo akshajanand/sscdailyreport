@@ -1,0 +1,6 @@
+{
+  "name": "SSC Daily Report",
+  "description": "Daily report application for SSC class with a relational database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

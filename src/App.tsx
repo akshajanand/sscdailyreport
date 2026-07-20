@@ -211,6 +211,7 @@ export default function App() {
   
   const logFileInputRef = React.useRef<HTMLInputElement>(null);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
+  const chatContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Fetch registered student profiles
   const fetchStudents = useCallback(async () => {
@@ -975,8 +976,11 @@ export default function App() {
 
   // Keep chat thread viewport scrolled to bottom
   useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
     }
   }, [activeChatReports.length]);
 
@@ -1854,7 +1858,7 @@ export default function App() {
                     </div>
 
                     {/* Chat Messages Log Scroll Feed */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3.5 no-scrollbar bg-slate-100/50 dark:bg-slate-950/10">
+                    <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5 no-scrollbar bg-slate-100/50 dark:bg-slate-950/10">
 
                       {activeChatReports.length === 0 ? (
                         <div className="py-16 text-center flex flex-col items-center justify-center">

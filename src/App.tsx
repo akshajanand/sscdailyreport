@@ -421,9 +421,17 @@ export default function App() {
     }
 
     try {
+      const userPassword = localStorage.getItem('ssc_user_password') || '';
       const { error: insertError } = await supabase
-        .from('ssc_reports')
-        .insert([newReport]);
+        .rpc('submit_report_secure', {
+          student_name: newReport.student_name,
+          student_password: userPassword,
+          subject: newReport.subject,
+          topic_covered: newReport.topic_covered,
+          study_duration: newReport.study_duration,
+          message_text: newReport.message_text,
+          photo_url: newReport.photo_url || null
+        });
 
       if (insertError) throw insertError;
       setRefreshTrigger(prev => prev + 1);
@@ -442,9 +450,16 @@ export default function App() {
     }
 
     try {
+      const userPassword = localStorage.getItem('ssc_user_password') || '';
       const { error: insertError } = await supabase
-        .from('ssc_messages')
-        .insert([newMessage]);
+        .rpc('send_message_secure', {
+          sender_name: newMessage.sender_name,
+          student_password: userPassword,
+          sender_role: newMessage.sender_role,
+          recipient: newMessage.recipient,
+          message_text: newMessage.message_text,
+          photo_url: newMessage.photo_url || null
+        });
 
       if (insertError) throw insertError;
       fetchMessages();
@@ -545,6 +560,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('ssc_user_name');
     localStorage.removeItem('ssc_user_role');
+    localStorage.removeItem('ssc_user_password');
     setUserName(null);
     setUserRole(null);
     setSelectedStudentChat(null);
@@ -562,11 +578,13 @@ export default function App() {
       confirmText: 'Delete',
       onConfirm: async () => {
         try {
-          const tableName = feedType === 'report' ? 'ssc_reports' : 'ssc_messages';
+          const teacherPassword = localStorage.getItem('ssc_user_password') || '';
           const { error: deleteError } = await supabase
-            .from(tableName)
-            .delete()
-            .eq('id', id);
+            .rpc('delete_item_secure', {
+              teacher_pwd: teacherPassword,
+              item_id: id,
+              item_type: feedType
+            });
 
           if (deleteError) throw deleteError;
           
@@ -591,9 +609,12 @@ export default function App() {
 
     setIsAddingStudent(true);
     try {
+      const teacherPassword = localStorage.getItem('ssc_user_password') || '';
       const { error: insertErr } = await supabase
-        .from('ssc_students')
-        .insert([{ name, password: 'gurukul' }]);
+        .rpc('add_student_secure', {
+          teacher_pwd: teacherPassword,
+          student_name: name
+        });
 
       if (insertErr) {
         if (insertErr.code === '23505') {
@@ -632,31 +653,17 @@ export default function App() {
 
     setIsUpdatingPassword(true);
     try {
-      // First verify current password by retrieving from DB
-      const { data, error: fetchErr } = await supabase
-        .from('ssc_students')
-        .select('*')
-        .eq('name', userName);
-
-      if (fetchErr || !data || data.length === 0) {
-        throw new Error('Could not find your student record.');
-      }
-
-      const dbPassword = data[0].password || 'gurukul';
-      if (currentPassword !== dbPassword) {
-        setSettingsStatus({ type: 'error', message: 'Current password is incorrect.' });
-        showToast('Current password is incorrect.', 'error');
-        setIsUpdatingPassword(false);
-        return;
-      }
-
-      // Perform update
       const { error: updateErr } = await supabase
-        .from('ssc_students')
-        .update({ password: newPassword })
-        .eq('name', userName);
+        .rpc('update_student_password_secure', {
+          student_name: userName,
+          current_password: currentPassword,
+          new_password: newPassword
+        });
 
       if (updateErr) throw updateErr;
+
+      // Update locally cached password
+      localStorage.setItem('ssc_user_password', newPassword);
 
       setSettingsStatus({ type: 'success', message: 'Password updated successfully!' });
       showToast('Password updated successfully!', 'success');
@@ -680,10 +687,12 @@ export default function App() {
       confirmText: 'Remove Student',
       onConfirm: async () => {
         try {
+          const teacherPassword = localStorage.getItem('ssc_user_password') || '';
           const { error: deleteErr } = await supabase
-            .from('ssc_students')
-            .delete()
-            .eq('id', studentId);
+            .rpc('delete_student_secure', {
+              teacher_pwd: teacherPassword,
+              student_id: studentId
+            });
 
           if (deleteErr) throw deleteErr;
           setRosterRefresh(prev => prev + 1);
@@ -714,13 +723,14 @@ export default function App() {
         return;
       }
 
+      const teacherPassword = localStorage.getItem('ssc_user_password') || '';
       const { error: insertError } = await supabase
-        .from('ssc_channels')
-        .insert([{
-          name,
+        .rpc('create_channel_secure', {
+          teacher_pwd: teacherPassword,
+          channel_name: name,
           is_global,
           allowed_students
-        }]);
+        });
 
       if (insertError) throw insertError;
 
@@ -745,10 +755,12 @@ export default function App() {
       confirmText: 'Delete Channel',
       onConfirm: async () => {
         try {
+          const teacherPassword = localStorage.getItem('ssc_user_password') || '';
           const { error: deleteError } = await supabase
-            .from('ssc_channels')
-            .delete()
-            .eq('id', id);
+            .rpc('delete_channel_secure', {
+              teacher_pwd: teacherPassword,
+              channel_id: id
+            });
 
           if (deleteError) throw deleteError;
           

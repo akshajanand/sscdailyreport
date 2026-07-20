@@ -27,9 +27,16 @@ export default function WelcomeScreen({ onJoin, isDarkMode, onToggleTheme }: Wel
     }
 
     // Teacher authorization check
-    const isTeacherLogin = name === '1221' || pwd === '1221';
+    // To prevent children from bypassing authorization, we strictly verify that BOTH:
+    // 1. The name/identity input is the designated teacher account ("Ashish Sir", "teacher", or the passcode).
+    // 2. The passcode/password input matches the secure value "1331".
+    // This blocks students from using the teacher passcode as a back-door password under a student name.
+    const isTeacherLogin = 
+      (name.toLowerCase() === 'ashish sir' || name.toLowerCase() === 'teacher' || name === '1331') && 
+      pwd === '1331';
 
     if (isTeacherLogin) {
+      localStorage.setItem('ssc_user_password', pwd);
       onJoin('Ashish Sir', 'teacher');
       return;
     }
@@ -43,27 +50,23 @@ export default function WelcomeScreen({ onJoin, isDarkMode, onToggleTheme }: Wel
     setIsLoading(true);
     try {
       const { data, error: dbErr } = await supabase
-        .from('ssc_students')
-        .select('*')
-        .ilike('name', name);
+        .rpc('verify_student_login', {
+          input_name: name,
+          input_password: pwd
+        });
 
       if (dbErr) {
-        setError('Database lookup error. Ensure your Supabase database is connected and initialized.');
+        setError('Database lookup error. Ensure your Supabase database is connected and initialized with the latest schema.');
         setIsLoading(false);
         return;
       }
 
-      if (data && data.length > 0) {
-        const studentRecord = data[0];
-        const dbPassword = studentRecord.password || 'gurukul';
-        
-        if (pwd === dbPassword) {
-          onJoin(studentRecord.name, 'student');
-        } else {
-          setError('Incorrect password. The default password for new students is "gurukul".');
-        }
+      const response = data as { success: boolean; name?: string; message?: string } | null;
+      if (response && response.success) {
+        localStorage.setItem('ssc_user_password', pwd);
+        onJoin(response.name || name, 'student');
       } else {
-        setError(`Access Denied: "${name}" is not registered on the class roster. Only your Social Science Teacher can add you.`);
+        setError(response?.message || 'Incorrect password. The default password for new students is "gurukul".');
       }
     } catch (err) {
       setError('Connection failure. Please check your network and try again.');

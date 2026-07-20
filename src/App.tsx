@@ -35,7 +35,8 @@ import {
   Loader2,
   Image,
   Upload,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 
 const getAvatarColor = (name: string, isDark: boolean) => {
@@ -229,12 +230,12 @@ export default function App() {
     }
   }, []);
 
-  // Fetch students if user is a teacher
+  // Fetch students if user is logged in
   useEffect(() => {
-    if (userRole === 'teacher') {
+    if (userName) {
       fetchStudents();
     }
-  }, [fetchStudents, userRole, rosterRefresh]);
+  }, [fetchStudents, userName, rosterRefresh]);
 
   // Fetch Reports from Supabase
   const fetchReports = useCallback(async () => {
@@ -487,7 +488,7 @@ export default function App() {
           await handleSendChatMessageRow({
             sender_name: userName!,
             sender_role: 'student',
-            recipient: isGroup ? selectedStudentChat! : 'Ashish Sir',
+            recipient: isGroup ? selectedStudentChat! : (selectedStudentChat || 'Ashish Sir'),
             message_text: text,
           });
         }
@@ -879,7 +880,7 @@ export default function App() {
     });
   }, [studentChatsList, searchQuery]);
 
-  // Compute the student-side dynamic chats list (including direct chat and channels)
+  // Compute the student-side dynamic chats list (including direct chat, channels, and peer-to-peer chats)
   const studentSideChats = React.useMemo(() => {
     // 1-to-1 with Ashish Sir
     const directMessages = messages.filter(m => 
@@ -917,14 +918,32 @@ export default function App() {
       };
     });
 
-    const rawChats = [directChat, ...channelChats];
+    // 1-to-1 DMs with peers/classmates
+    const peerChats = students
+      .filter(s => s.name !== userName)
+      .map(s => {
+        const peerMessages = messages.filter(m => 
+          (m.sender_name === userName && m.recipient === s.name) || 
+          (m.sender_name === s.name && m.recipient === userName)
+        );
+        const latestMsg = peerMessages.length > 0 ? peerMessages[peerMessages.length - 1] : null;
+        return {
+          id: s.name,
+          name: s.name,
+          latestMessage: latestMsg ? latestMsg.message_text : 'Tap to start a private conversation',
+          latestTime: latestMsg ? latestMsg.created_at : null,
+          type: 'peer' as const
+        };
+      });
+
+    const rawChats = [directChat, ...channelChats, ...peerChats];
     if (!searchQuery) return rawChats;
     const query = searchQuery.toLowerCase();
     return rawChats.filter(chat => 
       chat.name.toLowerCase().includes(query) || 
       chat.latestMessage.toLowerCase().includes(query)
     );
-  }, [messages, channels, userName, searchQuery]);
+  }, [messages, channels, userName, searchQuery, students]);
 
   // Auto initialize student default chat (Desktop only)
   useEffect(() => {
@@ -951,10 +970,18 @@ export default function App() {
     if (isGroup) {
       rawMessages = messages.filter(m => m.recipient === selectedStudentChat);
     } else {
-      rawMessages = messages.filter(m => 
-        (m.sender_name === targetStudent && m.recipient === 'Ashish Sir') || 
-        (m.sender_name === 'Ashish Sir' && m.recipient === targetStudent)
-      );
+      if (userRole === 'teacher') {
+        rawMessages = messages.filter(m => 
+          (m.sender_name === targetStudent && m.recipient === 'Ashish Sir') || 
+          (m.sender_name === 'Ashish Sir' && m.recipient === targetStudent)
+        );
+      } else {
+        const otherUser = selectedStudentChat === 'Ashish Sir' || !selectedStudentChat ? 'Ashish Sir' : selectedStudentChat;
+        rawMessages = messages.filter(m => 
+          (m.sender_name === userName && m.recipient === otherUser) || 
+          (m.sender_name === otherUser && m.recipient === userName)
+        );
+      }
     }
     const feedMessages = rawMessages.map(m => ({ ...m, feedType: 'message' as const }));
 
@@ -1729,7 +1756,9 @@ export default function App() {
                       const isSelected = selectedStudentChat === chat.id;
                       const avatarColor = chat.type === 'direct' 
                         ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white border-blue-400'
-                        : 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white border-emerald-400';
+                        : chat.type === 'peer'
+                          ? getAvatarColor(chat.name, isDarkMode)
+                          : 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white border-emerald-400';
                       const initials = chat.name === 'Ashish Sir' 
                         ? 'AS' 
                         : chat.name
@@ -1762,6 +1791,11 @@ export default function App() {
                               <h4 className="text-xs font-bold truncate pr-1 flex items-center gap-1">
                                 {chat.name}
                                 {chat.type === 'direct' && <Award className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />}
+                                {chat.type === 'peer' && (
+                                  <span className="text-[7.5px] px-1 py-0.2 rounded font-extrabold bg-blue-500/10 text-blue-500 border border-blue-500/20 uppercase shrink-0">
+                                    Peer DM
+                                  </span>
+                                )}
                               </h4>
                               {chat.latestTime && (
                                 <span className="text-[8px] text-slate-400 shrink-0 font-medium">
@@ -2037,6 +2071,52 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    {/* Quick Templates Bar */}
+                    <div className={`px-4 py-2.5 flex items-center gap-2 border-t shrink-0 ${
+                      isDarkMode ? 'border-slate-850 bg-slate-900/10' : 'border-slate-150 bg-slate-50/50'
+                    }`}>
+                      <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shrink-0 select-none ${
+                        isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-500/5 text-amber-600'
+                      }`}>
+                        <Zap className="w-3 h-3 animate-pulse text-amber-500" />
+                        <span>Quick Replies</span>
+                      </div>
+                      
+                      <div className="flex-1 flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                        {(userRole === 'teacher' ? [
+                          "Good progress! Keep it up. 👍",
+                          "Very well written report! 🌟",
+                          "Please upload your notes for this chapter.",
+                          "Great effort! Practise more map questions.",
+                          "Revision is looking solid. Keep going! 📚",
+                          "Please complete Civics outstanding questions.",
+                          "Important for board exams! 📝",
+                          "Let's discuss this in tomorrow's class."
+                        ] : [
+                          "Yes sir, I'll complete it today.",
+                          "Completed today's revision target.",
+                          "Doubt in this topic.",
+                          "Could you please review my map work?",
+                          "I'll upload pictures of my notes soon.",
+                          "Thank you, sir! 🙏",
+                          "SST revision is going well."
+                        ]).map((tmpl) => (
+                          <button
+                            key={tmpl}
+                            type="button"
+                            onClick={() => setChatInputText(tmpl)}
+                            className={`text-[10px] px-3 py-1.5 rounded-xl border shrink-0 transition-all font-bold tracking-tight ${
+                              isDarkMode
+                                ? 'bg-slate-950/60 border-slate-800 text-slate-300 hover:text-white hover:border-blue-500 hover:bg-slate-950'
+                                : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-blue-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {tmpl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
                     {/* Chat Text Input Bar */}
                     <form onSubmit={handleSendChatMessage} className={`p-4 border-t flex gap-2.5 items-center shrink-0 ${

@@ -121,6 +121,13 @@ export default function App() {
   const [subjectFilter, setSubjectFilter] = useState<string>('All');
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
+  // Chat-specific Search State (decouples sidebar search from conversation search)
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [showChatSearch, setShowChatSearch] = useState(false);
+
+  // Student Chat view category tab ('all' | 'channels' | 'peers')
+  const [studentChatTab, setStudentChatTab] = useState<'all' | 'channels' | 'peers'>('all');
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -945,6 +952,25 @@ export default function App() {
     );
   }, [messages, channels, userName, searchQuery, students]);
 
+  // Filter student-side chats by selected category tab
+  const filteredStudentSideChats = React.useMemo(() => {
+    return studentSideChats.filter(chat => {
+      if (studentChatTab === 'channels') {
+        return chat.type === 'group';
+      }
+      if (studentChatTab === 'peers') {
+        return chat.type === 'peer' || chat.type === 'direct';
+      }
+      return true;
+    });
+  }, [studentSideChats, studentChatTab]);
+
+  // Clear chat search when switching chats
+  useEffect(() => {
+    setChatSearchQuery('');
+    setShowChatSearch(false);
+  }, [selectedStudentChat]);
+
   // Auto initialize student default chat (Desktop only)
   useEffect(() => {
     if (userRole === 'student' && !selectedStudentChat && !isMobile) {
@@ -992,14 +1018,20 @@ export default function App() {
 
     return combined.filter(item => {
       const isRep = item.feedType === 'report';
-      const matchesSearch = !searchQuery || 
-                            (isRep && item.topic_covered?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                            item.message_text?.toLowerCase().includes(searchQuery.toLowerCase());
-      
       const matchesSubject = subjectFilter === 'All' || !isRep || item.subject === subjectFilter;
-      return matchesSearch && matchesSubject;
+      
+      // Decoupled chat search
+      if (showChatSearch && chatSearchQuery) {
+        const query = chatSearchQuery.toLowerCase();
+        const matchesSearch = isRep
+          ? (item.topic_covered?.toLowerCase().includes(query) || item.message_text?.toLowerCase().includes(query))
+          : item.message_text?.toLowerCase().includes(query);
+        return matchesSearch && matchesSubject;
+      }
+      
+      return matchesSubject;
     });
-  }, [reports, messages, userRole, userName, selectedStudentChat, searchQuery, subjectFilter]);
+  }, [reports, messages, userRole, userName, selectedStudentChat, chatSearchQuery, showChatSearch, subjectFilter, channels]);
 
   // Keep chat thread viewport scrolled to bottom
   useEffect(() => {
@@ -1199,7 +1231,7 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           
           {/* LEFT COLUMN: Administrative & Filtering Panels (col-span-4) */}
-          <div className="col-span-1 lg:col-span-4 flex flex-col gap-5">
+          <div className="col-span-1 lg:col-span-4 flex flex-col gap-5 order-2 lg:order-1">
 
             {/* Classroom Analytics Hub (Teacher view) */}
             {userRole === 'teacher' && (
@@ -1550,9 +1582,9 @@ export default function App() {
           </div>
 
           {/* RIGHT COLUMN: Highly Styled WhatsApp Work Space Container (col-span-8) */}
-          <div className="col-span-1 lg:col-span-8 flex flex-col gap-3">
+          <div className="col-span-1 lg:col-span-8 flex flex-col gap-3 order-1 lg:order-2">
             
-            <div className={`w-full rounded-3xl border shadow-md flex overflow-hidden h-[620px] ${
+            <div className={`w-full rounded-3xl border shadow-md flex overflow-hidden h-[620px] max-h-[85vh] md:max-h-none ${
               isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-250'
             }`}>
               
@@ -1566,7 +1598,14 @@ export default function App() {
                   isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-100/40'
                 }`}>
                   <p className={`text-[10px] font-extrabold uppercase tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {userRole === 'teacher' ? `Students (${filteredStudentChats.length})` : 'Class Channels'}
+                    {userRole === 'teacher' 
+                      ? `Students (${filteredStudentChats.length})` 
+                      : studentChatTab === 'all'
+                        ? 'My Discussions'
+                        : studentChatTab === 'channels'
+                          ? 'Class Channels'
+                          : 'Peers & Private DMs'
+                    }
                   </p>
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="System Live" />
                 </div>
@@ -1599,6 +1638,35 @@ export default function App() {
                       </button>
                     )}
                   </div>
+
+                  {/* Chat Category Filter Tabs (Student Side Only) */}
+                  {userRole === 'student' && (
+                    <div className="flex bg-slate-200/50 dark:bg-slate-950/55 p-0.5 rounded-xl gap-0.5 mt-0.5">
+                      {([
+                        { id: 'all', label: 'All' },
+                        { id: 'channels', label: 'Channels' },
+                        { id: 'peers', label: 'Peers' }
+                      ] as const).map((tab) => {
+                        const isSelected = studentChatTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setStudentChatTab(tab.id)}
+                            className={`flex-1 text-[9.5px] py-1 rounded-lg font-extrabold tracking-wide uppercase transition-all shrink-0 cursor-pointer text-center ${
+                              isSelected
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : isDarkMode
+                                  ? 'text-slate-400 hover:text-white hover:bg-slate-900/30'
+                                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Subject Quick Filter Chips */}
                   <div className="flex gap-1 overflow-x-auto no-scrollbar pb-0.5">
@@ -1751,65 +1819,71 @@ export default function App() {
                       )}
                     </>
                   ) : (
-                    /* STUDENT SIDE: Dynamic list of chats */
-                    studentSideChats.map((chat) => {
-                      const isSelected = selectedStudentChat === chat.id;
-                      const avatarColor = chat.type === 'direct' 
-                        ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white border-blue-400'
-                        : chat.type === 'peer'
-                          ? getAvatarColor(chat.name, isDarkMode)
-                          : 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white border-emerald-400';
-                      const initials = chat.name === 'Ashish Sir' 
-                        ? 'AS' 
-                        : chat.name
-                            .split(' ')
-                            .filter(word => word.length > 1)
-                            .slice(0, 2)
-                            .map(word => word[0].toUpperCase())
-                            .join('') || chat.name.slice(0, 2).toUpperCase();
+                    /* STUDENT SIDE: Dynamic list of chats with dynamic category tabs */
+                    filteredStudentSideChats.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400 font-semibold italic">
+                        No chats found under this category.
+                      </div>
+                    ) : (
+                      filteredStudentSideChats.map((chat) => {
+                        const isSelected = selectedStudentChat === chat.id;
+                        const avatarColor = chat.type === 'direct' 
+                          ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white border-blue-400'
+                          : chat.type === 'peer'
+                            ? getAvatarColor(chat.name, isDarkMode)
+                            : 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white border-emerald-400';
+                        const initials = chat.name === 'Ashish Sir' 
+                          ? 'AS' 
+                          : chat.name
+                              .split(' ')
+                              .filter(word => word.length > 1)
+                              .slice(0, 2)
+                              .map(word => word[0].toUpperCase())
+                              .join('') || chat.name.slice(0, 2).toUpperCase();
 
-                      return (
-                        <button
-                          key={chat.id}
-                          type="button"
-                          onClick={() => setSelectedStudentChat(chat.id)}
-                          className={`w-full text-left p-3.5 flex items-center gap-3 transition-all outline-none border-l-4 ${
-                            isSelected
-                              ? isDarkMode
-                                ? 'bg-slate-850/90 border-blue-500 text-white'
-                                : 'bg-blue-50/70 border-blue-600 text-slate-900'
-                              : isDarkMode
-                                ? 'border-transparent text-slate-300 hover:bg-slate-850/30'
-                                : 'border-transparent text-slate-700 hover:bg-slate-100/60'
-                          }`}
-                        >
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-extrabold shrink-0 border uppercase ${avatarColor}`}>
-                            {initials}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex justify-between items-baseline mb-0.5">
-                              <h4 className="text-xs font-bold truncate pr-1 flex items-center gap-1">
-                                {chat.name}
-                                {chat.type === 'direct' && <Award className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />}
-                                {chat.type === 'peer' && (
-                                  <span className="text-[7.5px] px-1 py-0.2 rounded font-extrabold bg-blue-500/10 text-blue-500 border border-blue-500/20 uppercase shrink-0">
-                                    Peer DM
+                        return (
+                          <button
+                            key={chat.id}
+                            type="button"
+                            onClick={() => setSelectedStudentChat(chat.id)}
+                            className={`w-full text-left p-3.5 flex items-center gap-3 transition-all outline-none border-l-4 ${
+                              isSelected
+                                ? isDarkMode
+                                  ? 'bg-slate-850/90 border-blue-500 text-white'
+                                  : 'bg-blue-50/70 border-blue-600 text-slate-900'
+                                : isDarkMode
+                                  ? 'border-transparent text-slate-300 hover:bg-slate-850/30'
+                                  : 'border-transparent text-slate-700 hover:bg-slate-100/60'
+                            }`}
+                          >
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-extrabold shrink-0 border uppercase ${avatarColor}`}>
+                              {initials}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex justify-between items-baseline mb-0.5">
+                                <h4 className="text-xs font-bold truncate pr-1 flex items-center gap-1">
+                                  {chat.name}
+                                  {chat.type === 'direct' && <Award className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />}
+                                  {chat.type === 'peer' && (
+                                    <span className="text-[7.5px] px-1 py-0.2 rounded font-extrabold bg-blue-500/10 text-blue-500 border border-blue-500/20 uppercase shrink-0">
+                                      Peer DM
+                                    </span>
+                                  )}
+                                </h4>
+                                {chat.latestTime && (
+                                  <span className="text-[8px] text-slate-400 shrink-0 font-medium">
+                                    {new Date(chat.latestTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
-                              </h4>
-                              {chat.latestTime && (
-                                <span className="text-[8px] text-slate-400 shrink-0 font-medium">
-                                  {new Date(chat.latestTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                                </span>
-                              )}
+                              </div>
+                              <p className={`text-[10px] font-medium truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {chat.latestMessage}
+                              </p>
                             </div>
-                            <p className={`text-[10px] font-medium truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                              {chat.latestMessage}
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })
+                          </button>
+                        );
+                      })
+                    )
                   )}
                 </div>
               </div>
@@ -1888,6 +1962,49 @@ export default function App() {
                             })()}
                           </p>
                         </div>
+                      </div>
+
+                      {/* Search in Chat Button & Inline Input */}
+                      <div className="flex items-center gap-2">
+                        {showChatSearch ? (
+                          <div className="flex items-center gap-1.5 transition-all">
+                            <input
+                              type="text"
+                              placeholder="Search messages..."
+                              value={chatSearchQuery}
+                              onChange={(e) => setChatSearchQuery(e.target.value)}
+                              autoFocus
+                              className={`px-3 py-1 text-xs rounded-lg border outline-none font-semibold w-24 sm:w-44 ${
+                                isDarkMode
+                                  ? 'bg-slate-950 border-slate-850 text-white focus:border-blue-500 placeholder:text-slate-700'
+                                  : 'bg-slate-50 border-slate-250 text-slate-800 focus:border-blue-600 placeholder:text-slate-400'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setChatSearchQuery('');
+                                setShowChatSearch(false);
+                              }}
+                              className={`p-1.5 rounded-lg border hover:text-red-500 transition-colors ${
+                                isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-250 text-slate-500'
+                              }`}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowChatSearch(true)}
+                            className={`p-1.5 rounded-lg border hover:text-blue-500 transition-colors ${
+                              isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-250 text-slate-500'
+                            }`}
+                            title="Search in this conversation"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 

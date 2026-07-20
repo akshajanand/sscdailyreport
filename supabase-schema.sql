@@ -32,14 +32,22 @@ alter table public.ssc_students enable row level security;
 
 -- Drop existing policies first to prevent "policy already exists" errors when re-running
 drop policy if exists "Allow all public reads" on public.ssc_reports;
+drop policy if exists "Allow all public reads" on ssc_reports;
 drop policy if exists "Allow all public inserts" on public.ssc_reports;
+drop policy if exists "Allow all public inserts" on ssc_reports;
 drop policy if exists "Allow all public updates (for reactions)" on public.ssc_reports;
+drop policy if exists "Allow all public updates (for reactions)" on ssc_reports;
 drop policy if exists "Allow all public deletes on reports" on public.ssc_reports;
+drop policy if exists "Allow all public deletes on reports" on ssc_reports;
 
 drop policy if exists "Allow all public reads on students" on public.ssc_students;
+drop policy if exists "Allow all public reads on students" on ssc_students;
 drop policy if exists "Allow all public inserts on students" on public.ssc_students;
+drop policy if exists "Allow all public inserts on students" on ssc_students;
 drop policy if exists "Allow all public deletes on students" on public.ssc_students;
+drop policy if exists "Allow all public deletes on students" on ssc_students;
 drop policy if exists "Allow all public updates on students" on public.ssc_students;
+drop policy if exists "Allow all public updates on students" on ssc_students;
 
 -- Create ultra-simple permissive policies for the school class setting
 create policy "Allow all public reads"
@@ -90,8 +98,11 @@ alter table public.ssc_messages enable row level security;
 
 -- Drop existing policies first
 drop policy if exists "Allow all public reads on messages" on public.ssc_messages;
+drop policy if exists "Allow all public reads on messages" on ssc_messages;
 drop policy if exists "Allow all public inserts on messages" on public.ssc_messages;
+drop policy if exists "Allow all public inserts on messages" on ssc_messages;
 drop policy if exists "Allow all public deletes on messages" on public.ssc_messages;
+drop policy if exists "Allow all public deletes on messages" on ssc_messages;
 
 -- Create permissive RLS policies for ssc_messages
 create policy "Allow all public reads on messages"
@@ -118,8 +129,11 @@ alter table public.ssc_channels enable row level security;
 
 -- Drop existing policies first
 drop policy if exists "Allow all public reads on channels" on public.ssc_channels;
+drop policy if exists "Allow all public reads on channels" on ssc_channels;
 drop policy if exists "Allow all public inserts on channels" on public.ssc_channels;
+drop policy if exists "Allow all public inserts on channels" on ssc_channels;
 drop policy if exists "Allow all public deletes on channels" on public.ssc_channels;
+drop policy if exists "Allow all public deletes on channels" on ssc_channels;
 
 -- Create permissive RLS policies for ssc_channels
 create policy "Allow all public reads on channels"

@@ -109,6 +109,14 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
   // Authentication & Roles
   const [userName, setUserName] = useState<string | null>(() => localStorage.getItem('ssc_user_name'));
   const [userRole, setUserRole] = useState<'student' | 'teacher' | null>(() => {
@@ -227,7 +235,7 @@ export default function App() {
     try {
       const { data, error: fetchErr } = await supabase
         .from('ssc_students')
-        .select('*')
+        .select('id, created_at, name')
         .order('name', { ascending: true });
       if (!fetchErr && data) {
         setStudents(data);
@@ -1596,7 +1604,7 @@ export default function App() {
           {/* RIGHT COLUMN: Highly Styled WhatsApp Work Space Container (col-span-8) */}
           <div className="col-span-1 lg:col-span-8 flex flex-col gap-3 order-1 lg:order-2">
             
-            <div className={`w-full rounded-3xl border shadow-md flex overflow-hidden h-[620px] max-h-[85vh] md:max-h-none ${
+            <div className={`w-full rounded-3xl border shadow-md flex overflow-hidden h-[650px] lg:h-[750px] xl:h-[800px] max-h-[85vh] ${
               isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-250'
             }`}>
               

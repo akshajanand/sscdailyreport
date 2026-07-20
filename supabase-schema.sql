@@ -1,11 +1,12 @@
 -- Supabase Schema for SSC WhatsApp-style Daily Study Reports (SECURED VERSION)
 -- Run the following script in your Supabase SQL Editor:
 
--- Drop existing tables to clear any spam records and start fresh
+-- Drop existing tables to clear any records and start fresh
 drop table if exists public.ssc_messages cascade;
 drop table if exists public.ssc_reports cascade;
 drop table if exists public.ssc_channels cascade;
 drop table if exists public.ssc_students cascade;
+drop table if exists public.ssc_student_credentials cascade;
 
 -- Drop secure RPC functions if they exist (to clean up)
 drop function if exists public.verify_student_login;
@@ -18,15 +19,20 @@ drop function if exists public.delete_channel_secure;
 drop function if exists public.delete_item_secure;
 drop function if exists public.update_student_password_secure;
 
--- 1. Create the ssc_students table to authorize student names and passwords securely
+-- 1. Create the public ssc_students table to authorized student names
 create table public.ssc_students (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  name text unique not null,
+  name text unique not null
+);
+
+-- 2. Create the private ssc_student_credentials table (completely hidden from clients)
+create table public.ssc_student_credentials (
+  student_name text primary key,
   password text default 'gurukul' not null
 );
 
--- 2. Create the ssc_reports table for formal study logs
+-- 3. Create the ssc_reports table for formal study logs
 create table public.ssc_reports (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -40,7 +46,7 @@ create table public.ssc_reports (
   reactions jsonb default '{}'::jsonb
 );
 
--- 3. Create the ssc_messages table to store separated real-time chats
+-- 4. Create the ssc_messages table to store separated real-time chats
 create table public.ssc_messages (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -51,7 +57,7 @@ create table public.ssc_messages (
   photo_url text -- optional attached photo/notes base64
 );
 
--- 4. Create the ssc_channels table for dynamic workspace channels
+-- 5. Create the ssc_channels table for dynamic workspace channels
 create table public.ssc_channels (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -60,14 +66,19 @@ create table public.ssc_channels (
   allowed_students text[] -- array of student names allowed if not global
 );
 
--- COLUMN LEVEL SECURITY:
--- Revoke all select privileges on the password column of ssc_students from the anon/public role.
--- This ensures that standard client-side queries can NEVER download or read student passwords.
-revoke all on public.ssc_students from anon, authenticated, public;
-grant select (id, created_at, name) on public.ssc_students to anon, authenticated;
+-- REVISE GRANTS FOR ULTIMATE SECURITY AND POSTGREST REST COMPATIBILITY:
+-- Grant SELECT on public tables to the API roles so they load smoothly
+grant select on public.ssc_students to anon, authenticated;
+grant select on public.ssc_reports to anon, authenticated;
+grant select on public.ssc_messages to anon, authenticated;
+grant select on public.ssc_channels to anon, authenticated;
 
--- Enable Row Level Security (RLS) on all tables to prevent direct client modifications
+-- EXPLICITLY REVOKE ALL PUBLIC PRIVILEGES on credentials table (extremely safe!)
+revoke all on public.ssc_student_credentials from anon, authenticated, public;
+
+-- Enable Row Level Security (RLS) on public tables
 alter table public.ssc_students enable row level security;
+alter table public.ssc_student_credentials enable row level security;
 alter table public.ssc_reports enable row level security;
 alter table public.ssc_messages enable row level security;
 alter table public.ssc_channels enable row level security;
@@ -82,20 +93,27 @@ create policy "Allow public selects on channels" on public.ssc_channels for sele
 -- All functions are marked as "security definer" so they run with superuser privileges,
 -- allowing them to modify the tables, while direct client writes (INSERT, UPDATE, DELETE) are strictly blocked by RLS.
 
--- A. Student login verification (Returns JSON, checks passwords securely inside DB, passwords never leave DB)
+-- A. Student login verification (Checks credentials securely inside the private table inside DB)
 create or replace function public.verify_student_login(
   input_name text,
   input_password text
 ) returns json as $$
 declare
   student_rec record;
+  cred_rec record;
 begin
   select * into student_rec from public.ssc_students where lower(name) = lower(input_name);
   if student_rec is null then
     return json_build_object('success', false, 'message', 'Access Denied: "' || input_name || '" is not registered on the class roster. Only your Social Science Teacher can add you.');
   end if;
 
-  if coalesce(student_rec.password, 'gurukul') = input_password then
+  select * into cred_rec from public.ssc_student_credentials where lower(student_name) = lower(student_rec.name);
+  if cred_rec is null then
+    -- fallback to default 'gurukul' if credential row doesn't exist
+    if input_password = 'gurukul' then
+      return json_build_object('success', true, 'name', student_rec.name);
+    end if;
+  elsif cred_rec.password = input_password then
     return json_build_object('success', true, 'name', student_rec.name);
   end if;
 
@@ -112,8 +130,12 @@ create or replace function public.update_student_password_secure(
 declare
   db_pwd text;
 begin
-  select password into db_pwd from public.ssc_students where lower(name) = lower(student_name);
-  if db_pwd is null or coalesce(db_pwd, 'gurukul') <> current_password then
+  select password into db_pwd from public.ssc_student_credentials where lower(student_name) = lower(student_name);
+  if db_pwd is null then
+    db_pwd := 'gurukul';
+  end if;
+
+  if db_pwd <> current_password then
     raise exception 'Current password is incorrect.';
   end if;
   
@@ -121,9 +143,9 @@ begin
     raise exception 'Password must be at least 4 characters long.';
   end if;
 
-  update public.ssc_students
-  set password = new_password
-  where lower(name) = lower(student_name);
+  insert into public.ssc_student_credentials (student_name, password)
+  values (student_name, new_password)
+  on conflict (student_name) do update set password = new_password;
 
   return true;
 end;
@@ -142,8 +164,12 @@ create or replace function public.submit_report_secure(
 declare
   db_pwd text;
 begin
-  select password into db_pwd from public.ssc_students where lower(name) = lower(student_name);
-  if db_pwd is null or coalesce(db_pwd, 'gurukul') <> student_password then
+  select password into db_pwd from public.ssc_student_credentials where lower(student_name) = lower(student_name);
+  if db_pwd is null then
+    db_pwd := 'gurukul';
+  end if;
+
+  if db_pwd <> student_password then
     raise exception 'Unauthorized: Invalid student name or password.';
   end if;
 
@@ -167,8 +193,12 @@ declare
   db_pwd text;
 begin
   if sender_role = 'student' then
-    select password into db_pwd from public.ssc_students where lower(name) = lower(sender_name);
-    if db_pwd is null or coalesce(db_pwd, 'gurukul') <> student_password then
+    select password into db_pwd from public.ssc_student_credentials where lower(student_name) = lower(sender_name);
+    if db_pwd is null then
+      db_pwd := 'gurukul';
+    end if;
+
+    if db_pwd <> student_password then
       raise exception 'Unauthorized: Invalid student name or password.';
     end if;
   elsif sender_role = 'teacher' then
@@ -196,8 +226,12 @@ begin
     raise exception 'Unauthorized: Incorrect teacher passcode.';
   end if;
 
-  insert into public.ssc_students (name, password)
-  values (student_name, 'gurukul');
+  insert into public.ssc_students (name)
+  values (student_name);
+
+  insert into public.ssc_student_credentials (student_name, password)
+  values (student_name, 'gurukul')
+  on conflict (student_name) do nothing;
 
   return true;
 end;
@@ -208,9 +242,17 @@ create or replace function public.delete_student_secure(
   teacher_pwd text,
   student_id uuid
 ) returns boolean as $$
+declare
+  st_name text;
 begin
   if teacher_pwd <> '1331' then
     raise exception 'Unauthorized: Incorrect teacher passcode.';
+  end if;
+
+  select name into st_name from public.ssc_students where id = student_id;
+
+  if st_name is not null then
+    delete from public.ssc_student_credentials where lower(student_name) = lower(st_name);
   end if;
 
   delete from public.ssc_students
@@ -283,12 +325,19 @@ $$ language plpgsql security definer;
 
 
 -- SEED DEFAULT DATA SAFELY:
-insert into public.ssc_students (name, password) values 
+insert into public.ssc_students (name) values 
+  ('Rohan Verma'), 
+  ('Ananya Sen'), 
+  ('Aarav Gupta'), 
+  ('Siddharth Rao')
+on conflict (name) do nothing;
+
+insert into public.ssc_student_credentials (student_name, password) values 
   ('Rohan Verma', 'gurukul'), 
   ('Ananya Sen', 'gurukul'), 
   ('Aarav Gupta', 'gurukul'), 
   ('Siddharth Rao', 'gurukul')
-on conflict (name) do nothing;
+on conflict (student_name) do nothing;
 
 insert into public.ssc_channels (name, is_global) values 
   ('Ask Doubts Get Them Solved From Peers', true),
